@@ -224,9 +224,155 @@ def j_skew(q):
     return j
 
 
+def j_column_numerical(td, ti):
+    """
+    Function for computing a column of a Jacobian matrix using numerical approach.
+
+    Parameters
+    ----------
+    td
+        derivative of transformation matrix wrt to some joint
+    ti
+        inverse of the rotational part of the transformation matrix, shown as follows:
+        [ R^(-1) 0 ]
+        [   0    1 ]
+
+    Returns
+    -------
+    j
+        column of a Jacobian matrix
+    """
+    j = td[0:3, 3]
+    tt = np.dot(td, ti)
+    j = np.append(j, tt[3, 2])
+    j = np.append(j, tt[1, 3])
+    j = np.append(j, tt[2, 1])
+    return j
+
+
+def j_numerical(q):
+    """
+    Function for computing Jacobian matrix from a given array of angles for each joint using numerical approach.
+
+    Resulting Jacobian matrix is constructed row by row using j_column_numerical defined above.
+
+    To construct a Jacobian using numerical approach we are going to need rotation matrices for each joint
+    (as the angles of rotation are the only changing thing) and translational matrices for each joint
+    (as the distance between each joint and its neighbors doesn't change). We then compute the numerical
+    derivative for each rotational matrix.
+
+    In addition to that, we solve the forward kinematics problem (shouldn't be hard, we have all the matrices),
+    and find the inverse of the rotational part, by actually inverting only that part of the resulting HT matrix
+    and making everything else except the bottom right element zero.
+
+    To actually compute the column of the Jacobian we need to calculate the derivative of the system wrt to every joint.
+    This is done by solving forward kinematics problem but substituting the rotational matrices with their derivatives.
+
+    Then each column of the Jacobian is constructed and assembled.
+
+    Parameters
+    ----------
+    q
+        list of angles of all joints, where j[0] - angle of first joint, j[5] - angle of sixth joint
+
+    Returns
+    -------
+    j
+        Jacobian matrix for the manipulator
+    """
+    # construct all transformation matrices for each joint
+    r1 = np.array([[np.cos(q[0]), -np.sin(q[0]), 0, 0],
+                   [np.sin(q[0]), np.cos(q[0]), 0, 0],
+                   [0, 0, 1, 0],
+                   [0, 0, 0, 1]])
+    r2 = np.array([[1, 0, 0, 0],
+                   [0, np.cos(q[1]), -np.sin(q[1]), 0],
+                   [0, np.sin(q[1]), np.sin(q[1]), 0],
+                   [0, 0, 0, 1]])
+    r3 = np.array([[1, 0, 0, 0],
+                   [0, np.cos(q[2]), -np.sin(q[2]), 0],
+                   [0, np.sin(q[2]), np.sin(q[2]), 0],
+                   [0, 0, 0, 1]])
+    r4 = np.array([[np.cos(q[3]), 0, np.sin(q[3]), 0],
+                   [0, 1, 0, 0],
+                   [-np.sin(q[3]), 0, np.cos(q[3]), 0],
+                   [0, 0, 0, 1]])
+    r5 = np.array([[1, 0, 0, 0],
+                   [0, np.cos(q[4]), -np.sin(q[4]), 0],
+                   [0, np.sin(q[4]), np.sin(q[4]), 0],
+                   [0, 0, 0, 1]])
+    r6 = np.array([[np.cos(q[5]), 0, np.sin(q[5]), 0],
+                   [0, 1, 0, 0],
+                   [-np.sin(q[5]), 0, np.cos(q[5]), 0],
+                   [0, 0, 0, 1]])
+    t1 = np.array([[1, 0, 0, 0],
+                   [0, 1, 0, 312],
+                   [0, 0, 1, 670],
+                   [0, 0, 0, 1]])
+    t2 = np.array([[1, 0, 0, 0],
+                   [0, 1, 0, 0],
+                   [0, 0, 1, 1075],
+                   [0, 0, 0, 1]])
+    t34 = np.array([[1, 0, 0, 0],
+                    [0, 1, 0, 1280],
+                    [0, 0, 1, 275],
+                    [0, 0, 0, 1]])
+    t5 = np.array([[1, 0, 0, 0],
+                   [0, 1, 0, 215],
+                   [0, 0, 1, 0],
+                   [0, 0, 0, 1]])
+    # compute the transformation matrix from base to joint 6
+    t = np.dot(r6, np.dot(t5, np.dot(r5, np.dot(t34, np.dot(r4, np.dot(r3, np.dot(t2, np.dot(r2, np.dot(t1, r1)))))))))
+    # compute the inverse of the transformation matrix
+    temp = t[0:3, 0:3]
+    temp = np.linalg.inv(temp)
+    ti = np.zeros((4, 4))
+    ti[0:3, 0:3] = temp
+    ti[3, 3] = 1
+    # compute the derivatives of the rotational matrices
+    r1d = np.array([[-np.sin(q[0]), -np.cos(q[0]), 0, 0],
+                    [np.cos(q[0]), -np.sin(q[0]), 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0]])
+    r2d = np.array([[0, 0, 0, 0],
+                    [0, -np.sin(q[1]), -np.cos(q[1]), 0],
+                    [0, np.cos(q[1]), -np.sin(q[1]), 0],
+                    [0, 0, 0, 0]])
+    r3d = np.array([[0, 0, 0, 0],
+                    [0, -np.sin(q[2]), -np.cos(q[2]), 0],
+                    [0, np.cos(q[2]), -np.sin(q[2]), 0],
+                    [0, 0, 0, 0]])
+    r4d = np.array([[-np.sin(q[3]), 0, np.cos(q[3]), 0],
+                    [0, 0, 0, 0],
+                    [-np.cos(q[3]), 0, -np.sin(q[3]), 0],
+                    [0, 0, 0, 0]])
+    r5d = np.array([[0, 0, 0, 0],
+                    [0, -np.sin(q[4]), -np.cos(q[4]), 0],
+                    [0, np.cos(q[4]), -np.sin(q[4]), 0],
+                    [0, 0, 0, 0]])
+    r6d = np.array([[-np.sin(q[5]), 0, np.cos(q[5]), 0],
+                    [0, 0, 0, 0],
+                    [-np.cos(q[5]), 0, -np.sin(q[5]), 0],
+                    [0, 0, 0, 0]])
+    td1 = np.dot(r6, np.dot(t5, np.dot(r5, np.dot(t34, np.dot(r4, np.dot(r3, np.dot(t2, np.dot(r2, np.dot(t1, r1d)))))))))
+    td2 = np.dot(r6, np.dot(t5, np.dot(r5, np.dot(t34, np.dot(r4, np.dot(r3, np.dot(t2, np.dot(r2d, np.dot(t1, r1)))))))))
+    td3 = np.dot(r6, np.dot(t5, np.dot(r5, np.dot(t34, np.dot(r4, np.dot(r3d, np.dot(t2, np.dot(r2, np.dot(t1, r1)))))))))
+    td4 = np.dot(r6, np.dot(t5, np.dot(r5, np.dot(t34, np.dot(r4d, np.dot(r3, np.dot(t2, np.dot(r2, np.dot(t1, r1)))))))))
+    td5 = np.dot(r6, np.dot(t5, np.dot(r5d, np.dot(t34, np.dot(r4, np.dot(r3, np.dot(t2, np.dot(r2, np.dot(t1, r1)))))))))
+    td6 = np.dot(r6d, np.dot(t5, np.dot(r5, np.dot(t34, np.dot(r4, np.dot(r3, np.dot(t2, np.dot(r2, np.dot(t1, r1)))))))))
+    j1 = j_column_numerical(td1, ti)
+    j2 = j_column_numerical(td2, ti)
+    j3 = j_column_numerical(td3, ti)
+    j4 = j_column_numerical(td4, ti)
+    j5 = j_column_numerical(td5, ti)
+    j6 = j_column_numerical(td6, ti)
+    j = np.vstack((j1, j2, j3, j4, j5, j6))
+    return j
+
+
 q = [1, 1, 1, 1, 1, 1]
-j = j_skew(q)
-for r in range(6):
-    for c in range(6):
+j = j_numerical(q)
+for r in range(4):
+    for c in range(4):
         print(j[r][c], end=' ')
     print("")
